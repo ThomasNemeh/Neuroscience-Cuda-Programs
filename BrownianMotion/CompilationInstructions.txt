@@ -1,0 +1,25 @@
+1. Put the following files in the same directory: 3gpubm.cu, 3gpubm.h, setupNumPy3.py, generateNumPy.pyx 
+
+2. Add the nvcc compiler to your path by typing the following: 
+         PATH="/usr/local/cuda-9.1/bin:$PATH"
+
+3. Compile CythonBM.cu into a shared library by typing the following:
+           nvcc --compiler-options '-fPIC' -shared -o lib3gpubm.so 3gpubm.cu -I/home/psimen/anaconda3/lib/python3.6/site-packages/numpy/core/include/numpy -I/home/psimen/anaconda3/include/python3.6m
+
+You should now have file in your directory called lib3gpubm.so.
+
+4. Now you must modify the setupNumPy2.py file. Open it and you should see the following:
+
+Extension('generateNumPy3',
+                sources=['generateNumPy.pyx'],
+                library_dirs=['/usr/local/cuda-9.1/lib64', '/home/thomasnemeh/CudaPrograms'],
+                libraries=['cudart', 'CythonBM'],
+                language='c++',
+                runtime_library_dirs=['/usr/local/cuda-9.1/lib64', '/home/thomasnemeh/CudaPrograms'],
+                include_dirs = ['/home/psimen/anaconda3/lib/python3.6/site-packages/Cython/Includes', '/usr/local/cuda-9.1/include', '/home/psimen/anaconda3/lib/python3.6/site-packages']          
+
+There are places where "/home/thomasnemeh/CudaPrograms" is listed. One is in library_dirs and the other is in runtime_library_dirs. Delete "/home/thomasnemeh/CudaPrograms" and replace it with the name of the directory you put the files in. 
+
+4.  Now compile setupNumPy.py by typing the following: 
+         /home/psimen/anaconda3/bin/python3.6 setupNumPy3.py build_ext --inplace
+

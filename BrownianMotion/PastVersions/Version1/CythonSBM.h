@@ -1,0 +1,1 @@
+double *makePath(int T, int N);
