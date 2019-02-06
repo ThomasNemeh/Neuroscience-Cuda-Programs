@@ -1,0 +1,23 @@
+TO COMPILE EVERYTHING AT ONCE
+simply type:
+	$ make -f makefile.mak
+
+TO REMOVE ALL NEWLY COMPILED FILES
+	$ make clean -f makefile.mak
+
+***********************************************************************************************************************
+MANUAL COMPILATION INSTRUCTIONS
+
+1. Put the following files in the same directory: HysterisisMM.cu, HysterisisMM.h, SetupHysterisisMM.py, HysterisisMM.pyx  
+ 
+2. Add the nvcc compiler to your path by typing the following:  
+         PATH="/usr/local/cuda-9.1/bin:$PATH" 
+ 
+3. Compile HysterisisMM.cu into a shared library by typing the following: 
+           nvcc --compiler-options '-fPIC' -shared -o libHysterisisMM.so HysterisisMM.cu -std=c++11 -lcurand -lcublas
+You should now have file in your directory called libHysterisisMM.so
+ 
+4.  Now compile HysterisisMM.pyx by typing the following:  
+         /home/psimen/anaconda3/bin/python3.6 SetupHysterisisMM.py build_ext --inplace 
+		 
+		 

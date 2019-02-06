@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <cublas_v2.h>
 #include <curand.h>
+#include <curand_kernel.h>
 #include <cstdlib>
 #include <iostream>
 using std::cout;
@@ -61,20 +62,26 @@ void print_matrix(float *matrix, int rows, int cols) {
 // perform the sqeeze function on each element of the vector resulting from the later iteration of matrix multiplication
 // Param: B = pointer to activation vector, dim = starting point of the vector results of the last iteration of matrix multiplication, 
 // L and M are parameters of the squeeze function
-__global__ void updateState(float *B, float *external, int dim, float timestep, int length, float L, float M) {
+__global__ void updateState(float *B, float *external, int dim, float timestep, float noise, int length, int size_layers, float L, float M) {
 	int index = (blockIdx.x * blockDim.x) + threadIdx.x + length;
-	if (index < length + dim) {
-		float input = B[index] + external[index-dim];
+	if (index >= length && index < length + dim) {
+		float input = B[index] + external[index + size_layers * (index - length + dim - 1) - dim];
 		float old_output = B[index - dim];
 		float d_layers = (-1 * old_output) + 1 / (1 + expf(-1 * L * (input - M)));
-		B[index] = old_output + d_layers * timestep;
+		
+		// create random number generator
+		curandState_t state;
+		curand_init (blockIdx.x * 1000 + threadIdx.x + clock64(), 0, 0, &state);
+		float random = curand_normal(&state);
+		float guassian_noise = noise * random * sqrt(timestep); 
+		B[index] = old_output + d_layers * timestep + guassian_noise;
 	}
 }
 
 // perform the matrix multiplication operation
 // Param: handle = handle to the cuBLAS library context. iterations = number of times we multiply activation vector by matrix
 //        A = matrix. B = array of activation vectors calculated so far. dim = length & width of square matrix. L, M = parameter for squeeze function
-void gpu_blas_mmul(cublasHandle_t &handle, int iterations, float timestep, const float *A, float *B, float *external, const int dim, float L, float M) {
+void gpu_blas_mmul(cublasHandle_t &handle, int iterations, float timestep, const float noise, const float *A, float *B, float *external, const int dim, const int size_layers, float L, float M) {
     const float alf = 1; // scalar used for multiplication
     const float bet = 0; // scalar used for multiplication
     const float *alpha = &alf;
@@ -83,7 +90,7 @@ void gpu_blas_mmul(cublasHandle_t &handle, int iterations, float timestep, const
 	
 	for (int i = 0; i < iterations; i++) {
 		cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, dim, 1, dim, alpha, A, dim, (B + length - dim), dim, beta, (B + length), dim);
-		updateState<<<(31 + dim) / 32, 32>>>(B, external, dim, timestep, length, L, M);
+		updateState<<<(31 + dim) / 32, 32>>>(B, external, dim, timestep, noise, length, size_layers, L, M);
 		length += dim;
 	} 
 }
@@ -124,26 +131,27 @@ extern "C++" void fillLayers(float *layers, int dim) {
 }
 
 // external function defined in MatrixMultiplication.h
-extern "C++" void matrixMultiplication(float *layers, float *weights, float *external, int dim, int iterations, float timestep, float L, float M) {
+extern "C++" void matrixMultiplication(float *layers, float *weights, float *external, int dim, int iterations, float timestep, float noise, float L, float M) {
 	int size_weights = dim * dim;
 	int size_layers = dim * iterations + dim;
+	int size_external = size_layers * dim - dim;
 
 	// allocate arrays on device
 	float *dev_layers, *dev_weights, *dev_external;
 	cudaMalloc(&dev_layers, size_layers * sizeof(float));
-	cudaMalloc(&dev_external, size_layers * sizeof(float));
+	cudaMalloc(&dev_external, size_external * sizeof(float));
 	cudaMalloc(&dev_weights, size_weights * sizeof(float));
 	
 	// copy arrays to GPU
 	cudaMemcpy(dev_layers, layers, size_layers * sizeof(float), cudaMemcpyHostToDevice);
-	cudaMemcpy(dev_external, external, size_layers * sizeof(float), cudaMemcpyHostToDevice);
+	cudaMemcpy(dev_external, external, size_external * sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(dev_weights, weights, size_weights * sizeof(float),cudaMemcpyHostToDevice);
 	
 	// create handle to the cuBLAS library context
 	cublasHandle_t handle;
     cublasCreate(&handle);
 	
-	gpu_blas_mmul(handle, iterations, timestep, dev_weights, dev_layers, dev_external, dim, L, M);
+	gpu_blas_mmul(handle, iterations, timestep, noise, dev_weights, dev_layers, dev_external, dim, size_layers, L, M);
 	
 	// destroy handle
 	cublasDestroy(handle);
